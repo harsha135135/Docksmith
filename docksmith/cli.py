@@ -50,6 +50,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
         context_dir=args.context,
         tag=args.tag,
         no_cache=args.no_cache,
+        cold=args.cold,
         docksmithfile=args.file,
     )
 
@@ -174,6 +175,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Disable layer cache",
+    )
+    p_build.add_argument(
+        "--cold",
+        action="store_true",
+        default=False,
+        help="Clear cache index before this build (forces cache misses)",
     )
     p_build.set_defaults(func=_cmd_build)
 

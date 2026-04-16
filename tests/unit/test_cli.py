@@ -48,3 +48,9 @@ def test_extract_leading_env_flags_supports_long_form() -> None:
     env, cmd = _extract_leading_env_flags(["--env", "A=1", "run.sh"])
     assert env == {"A": "1"}
     assert cmd == ["run.sh"]
+
+
+def test_build_parser_supports_cold_flag() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["build", "--cold", "-t", "x:y", "sample-app"])
+    assert args.cold is True

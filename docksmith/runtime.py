@@ -36,6 +36,7 @@ from __future__ import annotations
 import ctypes
 import ctypes.util
 import os
+import stat
 import sys
 import tempfile
 
@@ -159,12 +160,69 @@ def _setup_container(rootfs: str) -> None:
         os.chroot(rootfs)
         os.chdir("/")
 
+    # Ensure minimal runtime layout expected by shell utilities and demos.
+    _ensure_runtime_fs()
+
     # Mount /proc for PID namespace correctness
     try:
         os.makedirs("/proc", exist_ok=True)
         _mount(b"proc", b"/proc", b"proc", 0, None)
     except OSError:
         pass  # Non-fatal; some base images already have /proc
+
+
+def _ensure_runtime_fs(root: str = "/") -> None:
+    """Ensure /tmp and /dev/null exist inside the container root."""
+    dev_dir = os.path.join(root, "dev")
+    tmp_dir = os.path.join(root, "tmp")
+
+    os.makedirs(dev_dir, exist_ok=True)
+    _chmod_best_effort(dev_dir, 0o755)
+
+    _ensure_tmp_dir(tmp_dir, root)
+    _ensure_dev_null(os.path.join(dev_dir, "null"))
+
+
+def _ensure_tmp_dir(tmp_dir: str, root: str) -> None:
+    """Create /tmp (or the target of a /tmp symlink) with sticky bit."""
+    if os.path.islink(tmp_dir):
+        target = _resolve_link_target(tmp_dir, root)
+        os.makedirs(target, exist_ok=True)
+        _chmod_best_effort(target, 0o1777)
+        return
+
+    os.makedirs(tmp_dir, exist_ok=True)
+    _chmod_best_effort(tmp_dir, 0o1777)
+
+
+def _ensure_dev_null(null_path: str) -> None:
+    """Create /dev/null as a character device when possible."""
+    if os.path.exists(null_path):
+        return
+    try:
+        os.mknod(null_path, stat.S_IFCHR | 0o666, os.makedev(1, 3))
+    except OSError:
+        # Fallback in restricted environments that disallow mknod.
+        with open(null_path, "ab"):
+            pass
+        _chmod_best_effort(null_path, 0o666)
+
+
+def _resolve_link_target(link_path: str, root: str) -> str:
+    """Resolve symlink target, keeping absolute links rooted under *root*."""
+    target = os.readlink(link_path)
+    if os.path.isabs(target):
+        if root == "/":
+            return target
+        return os.path.join(root, target.lstrip("/"))
+    return os.path.normpath(os.path.join(os.path.dirname(link_path), target))
+
+
+def _chmod_best_effort(path: str, mode: int) -> None:
+    try:
+        os.chmod(path, mode)
+    except OSError:
+        pass
 
 
 def run(

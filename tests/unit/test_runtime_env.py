@@ -2,8 +2,9 @@
 
 import os
 import signal
+import stat
 
-from docksmith.runtime import _build_exec_env, _wait_status_to_exit_code
+from docksmith.runtime import _build_exec_env, _ensure_runtime_fs, _wait_status_to_exit_code
 
 
 def test_build_exec_env_sets_default_path() -> None:
@@ -38,3 +39,29 @@ def test_wait_status_to_exit_code_signaled() -> None:
         os._exit(1)
     _, status = os.waitpid(pid, 0)
     assert _wait_status_to_exit_code(status) == 128 + signal.SIGTERM
+
+
+def test_ensure_runtime_fs_creates_tmp_and_dev_null(tmp_path) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+
+    _ensure_runtime_fs(str(root))
+
+    tmp_dir = root / "tmp"
+    dev_null = root / "dev" / "null"
+
+    assert tmp_dir.is_dir()
+    assert stat.S_IMODE(tmp_dir.stat().st_mode) == 0o1777
+    assert dev_null.exists()
+    assert stat.S_ISCHR(dev_null.stat().st_mode) or stat.S_ISREG(dev_null.stat().st_mode)
+
+
+def test_ensure_runtime_fs_handles_tmp_symlink(tmp_path) -> None:
+    root = tmp_path / "root"
+    (root / "var").mkdir(parents=True)
+    os.makedirs(root / "dev", exist_ok=True)
+    os.symlink("var/tmp", root / "tmp")
+
+    _ensure_runtime_fs(str(root))
+
+    assert (root / "var" / "tmp").is_dir()

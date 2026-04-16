@@ -219,8 +219,8 @@ docksmith images
 ## 8‑Step Demo (matches §9 of the spec)
 
 ```bash
-# 1 — Cold build: every layer step shows [CACHE MISS]
-sudo docksmith build -t myapp:latest ./sample-app
+# 1 — Cold build: clear cache index first so every layer step shows [CACHE MISS]
+sudo docksmith build --cold -t myapp:latest ./sample-app
 
 # 2 — Warm build: every layer step shows [CACHE HIT], near-instant
 sudo docksmith build -t myapp:latest ./sample-app
@@ -281,6 +281,7 @@ or `APP_VERSION` with `-e KEY=value`.
 
 ```
 docksmith build -t <name:tag> <context>   Build an image from a Docksmithfile
+  --cold                                    Clear cache index before build
   --no-cache                                Skip all cache lookups and writes
   -f, --file <path>                         Use a Docksmithfile outside the context
 

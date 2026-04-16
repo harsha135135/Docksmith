@@ -85,6 +85,11 @@ def save_index(index: dict[str, str]) -> None:
     tmp.replace(path)
 
 
+def clear_index() -> None:
+    """Clear all cache key mappings."""
+    save_index({})
+
+
 def cache_lookup(cache_key: str) -> str | None:
     """
     Return the layer digest for cache_key if:

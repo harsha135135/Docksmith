@@ -63,6 +63,7 @@ def build_image(
     context_dir: str,
     tag: Optional[str] = None,
     no_cache: bool = False,
+    cold: bool = False,
     docksmithfile: Optional[str] = None,
 ) -> int:
     """
@@ -90,6 +91,9 @@ def build_image(
         out_name, out_tag = store.parse_image_ref(tag)
     else:
         out_name, out_tag = "unnamed", "latest"
+
+    if cold and not no_cache:
+        cache_mod.clear_index()
 
     total = len(instructions)
     state = BuildState()
