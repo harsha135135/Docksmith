@@ -1,15 +1,18 @@
-# Sample Docksmithfile — exercises all six instructions
+# Sample Docksmithfile — exercises every required instruction (FROM, COPY,
+# RUN, WORKDIR, ENV, CMD).  Build with:
+#     sudo docksmith build -t myapp:latest ./sample-app
+
 FROM alpine:3.18
 
 WORKDIR /app
 
+ENV APP_VERSION=1.2.0
 ENV GREETING=Hello TARGET=Docksmith
-ENV APP_VERSION=1.1.0
-ENV EMPHASIS=green
+ENV EMPHASIS=cyan
 
-COPY app.sh app.py /app/
+COPY app.sh /app/app.sh
 COPY vendor/ /app/vendor/
 
-RUN chmod +x /app/app.sh
+RUN chmod +x /app/app.sh && mkdir -p /app/.cache
 
 CMD ["/bin/sh", "/app/app.sh"]

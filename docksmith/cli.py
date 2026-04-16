@@ -24,21 +24,34 @@ def _cmd_build(args: argparse.Namespace) -> int:
 
 
 def _cmd_images(args: argparse.Namespace) -> int:
+    from docksmith._term import style
+
     store.init()
     images = store.list_images()
     if not images:
         print("No images found.")
         return 0
-    # Header
-    fmt = "{:<30} {:<15} {:<14} {}"
-    print(fmt.format("NAME", "TAG", "IMAGE ID", "CREATED"))
+    name_w, tag_w, id_w = 30, 15, 14
+    header = (
+        f"{'NAME':<{name_w}} {'TAG':<{tag_w}} "
+        f"{'IMAGE ID':<{id_w}} CREATED"
+    )
+    print(style(header, "bold"))
     for img in images:
-        print(fmt.format(img["name"], img["tag"], img["id"], img["created"]))
+        name_pad = f"{img['name']:<{name_w}}"
+        tag_pad = f"{img['tag']:<{tag_w}}"
+        id_pad = f"{img['id']:<{id_w}}"
+        # Apply color *after* padding so column widths stay correct.
+        print(
+            f"{style(name_pad, 'cyan')} {tag_pad} "
+            f"{style(id_pad, 'yellow')} {img['created']}"
+        )
     return 0
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
     from docksmith.runtime import run_image
+    from docksmith._term import style
 
     extra_env: dict[str, str] = {}
     for kv in args.env or []:
@@ -53,7 +66,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
         cmd_override=args.cmd or [],
         extra_env=extra_env,
     )
-    print(f"Container exited with code {rc}")
+    word = "Container exited with code"
+    code_str = style(str(rc), "green" if rc == 0 else "red")
+    print(f"{word} {code_str}")
     return rc
 
 
@@ -79,7 +94,12 @@ def _cmd_rmi(args: argparse.Namespace) -> int:
             removed_layers += 1
 
     manifest_path.unlink()
-    print(f"Removed {args.image} (manifest + {removed_layers} layer(s))")
+    from docksmith._term import style
+    print(
+        f"{style('Removed', 'bold', 'red')} "
+        f"{style(args.image, 'cyan')} "
+        f"(manifest + {removed_layers} layer(s))"
+    )
     return 0
 
 

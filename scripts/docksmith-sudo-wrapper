@@ -1,15 +1,44 @@
 #!/usr/bin/env bash
 # Wrapper so `sudo docksmith` works when the package is installed in user space.
-# Copy to /usr/local/bin/docksmith with:
-#   sudo cp scripts/docksmith-sudo-wrapper /usr/local/bin/docksmith
-#   sudo chmod +x /usr/local/bin/docksmith
-# Resolve the invoking user's home so the store is shared with non-sudo usage.
-if [ -n "${SUDO_USER:-}" ]; then
-    _USER_HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+#
+# Install with:
+#   sudo install -m 0755 scripts/docksmith-sudo-wrapper /usr/local/bin/docksmith
+#
+# The wrapper:
+#   1. Resolves the real project root from the wrapper's own location, OR from
+#      DOCKSMITH_HOME if exported (useful when the wrapper lives at a fixed path
+#      like /usr/local/bin/docksmith but the repo is somewhere else).
+#   2. Pins DOCKSMITH_ROOT to the *invoking* user's home so the on-disk store
+#      is shared between sudo and non-sudo invocations.
+
+set -e
+
+# Locate the project root.
+# Priority: DOCKSMITH_HOME env > script's parent dir (when invoked from repo).
+if [ -n "${DOCKSMITH_HOME:-}" ]; then
+    PROJECT_ROOT="${DOCKSMITH_HOME}"
 else
-    _USER_HOME="$HOME"
+    SCRIPT_PATH="$(readlink -f "$0")"
+    SCRIPT_DIR="$(dirname "${SCRIPT_PATH}")"
+    # If this wrapper sits in <repo>/scripts, the parent is the repo root.
+    if [ -d "${SCRIPT_DIR}/../docksmith" ]; then
+        PROJECT_ROOT="$(readlink -f "${SCRIPT_DIR}/..")"
+    else
+        # Installed copy: try to find docksmith on the Python path instead.
+        PROJECT_ROOT=""
+    fi
 fi
 
-exec env PYTHONPATH=/home/harsha_1305/projects/cc/docksmith \
-    DOCKSMITH_ROOT="${_USER_HOME}/.docksmith" \
-    python3 -m docksmith "$@"
+# Resolve invoking user's home so the on-disk store is shared with non-sudo runs.
+if [ -n "${SUDO_USER:-}" ]; then
+    USER_HOME="$(getent passwd "${SUDO_USER}" | cut -d: -f6)"
+else
+    USER_HOME="${HOME}"
+fi
+
+ENV_ARGS=(DOCKSMITH_ROOT="${USER_HOME}/.docksmith")
+if [ -n "${PROJECT_ROOT}" ]; then
+    ENV_ARGS+=(PYTHONPATH="${PROJECT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}")
+fi
+
+exec env "${ENV_ARGS[@]}" python3 -m docksmith "$@"

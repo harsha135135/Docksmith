@@ -34,6 +34,7 @@ from docksmith import DocksmithError, store
 from docksmith import cache as cache_mod
 from docksmith import image as image_mod
 from docksmith import layer as layer_mod
+from docksmith._term import style
 from docksmith.parser import Instruction, parse_file
 
 
@@ -140,7 +141,9 @@ def build_image(
 
     elapsed = time.monotonic() - build_start
     short_id = manifest["digest"].removeprefix("sha256:")[:8]
-    print(f"Successfully built sha256:{short_id} {out_name}:{out_tag} ({elapsed:.2f}s)")
+    success_word = style("Successfully built", "bold", "green")
+    image_ref = style(f"{out_name}:{out_tag}", "cyan")
+    print(f"{success_word} sha256:{short_id} {image_ref} ({elapsed:.2f}s)")
     return 0
 
 
@@ -233,7 +236,8 @@ def _handle_instruction(
         record = image_mod.make_layer_record(layer_digest, store.layers_dir(), full_text)
         state.layer_records.append(record)
         elapsed = time.monotonic() - t_start
-        print(f"{step_num} : {instr.name} {instr.args_raw} [CACHE HIT] {elapsed:.2f}s")
+        tag = style("[CACHE HIT]", "green")
+        print(f"{step_num} : {instr.name} {instr.args_raw} {tag} {elapsed:.2f}s")
         return "hit"
 
     # Cache miss — execute
@@ -248,7 +252,8 @@ def _handle_instruction(
         cache_mod.cache_store(cache_key, layer_digest)
 
     elapsed = time.monotonic() - t_start
-    print(f"{step_num} : {instr.name} {instr.args_raw} [CACHE MISS] {elapsed:.2f}s")
+    tag = style("[CACHE MISS]", "yellow")
+    print(f"{step_num} : {instr.name} {instr.args_raw} {tag} {elapsed:.2f}s")
     return "miss"
 
 
