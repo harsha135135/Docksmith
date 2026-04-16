@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Wrapper so `sudo docksmith` works when the package is installed in user space.
+# Copy to /usr/local/bin/docksmith with:
+#   sudo cp scripts/docksmith-sudo-wrapper /usr/local/bin/docksmith
+#   sudo chmod +x /usr/local/bin/docksmith
+# Resolve the invoking user's home so the store is shared with non-sudo usage.
+if [ -n "${SUDO_USER:-}" ]; then
+    _USER_HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+else
+    _USER_HOME="$HOME"
+fi
+
+exec env PYTHONPATH=/home/harsha_1305/projects/cc/docksmith \
+    DOCKSMITH_ROOT="${_USER_HOME}/.docksmith" \
+    python3 -m docksmith "$@"

@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "docksmith"
+version = "0.1.0"
+description = "A simplified Docker-like build-and-runtime system"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+docksmith = "docksmith.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["docksmith*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
