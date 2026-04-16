@@ -48,11 +48,13 @@ def _cmd_run(args: argparse.Namespace) -> int:
         k, v = kv.split("=", 1)
         extra_env[k] = v
 
-    return run_image(
+    rc = run_image(
         image_ref=args.image,
         cmd_override=args.cmd or [],
         extra_env=extra_env,
     )
+    print(f"Container exited with code {rc}")
+    return rc
 
 
 def _cmd_rmi(args: argparse.Namespace) -> int:

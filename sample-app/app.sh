@@ -5,18 +5,21 @@
 #   GREETING    — greeting word  (default: Hello)
 #   TARGET      — who to greet   (default: Docksmith)
 #   APP_VERSION — set via Docksmithfile ENV
+#   EMPHASIS    — greeting color (default: green)
 
 GREETING="${GREETING:-Hello}"
 TARGET="${TARGET:-Docksmith}"
 APP_VERSION="${APP_VERSION:-unknown}"
+EMPHASIS="${EMPHASIS:-green}"
 
 # Source the vendor library
 . /app/vendor/colorize.sh
 
 BANNER="========================================"
 echo "$BANNER"
-colorize "  ${GREETING}, ${TARGET}!"
+colorize "  ${GREETING}, ${TARGET}!" "${EMPHASIS}"
 echo "  App version : ${APP_VERSION}"
 echo "  Shell       : /bin/sh (busybox ash)"
+echo "  PID         : $$"
 echo "  Working dir : ${PWD}"
 echo "$BANNER"

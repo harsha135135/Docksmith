@@ -273,9 +273,14 @@ def extract_layer(digest: str, layers_dir: str | Path, target_dir: str | Path) -
                 except OSError:
                     pass
             try:
-                tf.extract(member, target_dir)  # set_attrs=True (default) preserves permissions
+                # Use tarfile's safe "data" extraction filter to prevent link-based
+                # path escapes (e.g., absolute symlinks followed by regular files).
+                tf.extract(member, target_dir, filter="data")  # type: ignore[arg-type]
             except (FileExistsError, IsADirectoryError):
                 pass  # directory already exists — fine
+            except tarfile.TarError:
+                # Skip unsafe members rejected by the extraction filter.
+                pass
 
 
 def digest_file(path: str | Path) -> str:

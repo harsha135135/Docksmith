@@ -5,6 +5,7 @@ Key property: same directory contents → same SHA-256 every time.
 """
 
 import hashlib
+import io
 import os
 import tarfile
 import tempfile
@@ -119,3 +120,38 @@ class TestDigestBytes:
         data = b"hello"
         expected = "sha256:" + hashlib.sha256(b"hello").hexdigest()
         assert digest_bytes(data) == expected
+
+
+class TestExtractSafety:
+    def test_extract_does_not_follow_absolute_symlink(self, tmp_path):
+        """A tar symlink pointing outside target_dir must not cause host writes."""
+        from docksmith.layer import extract_layer
+
+        layers_dir = tmp_path / "layers"
+        rootfs = tmp_path / "rootfs"
+        host_outside = tmp_path / "host_outside"
+        layers_dir.mkdir()
+        rootfs.mkdir()
+
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w", format=tarfile.PAX_FORMAT) as tf:
+            link = tarfile.TarInfo("link")
+            link.type = tarfile.SYMTYPE
+            link.linkname = str(host_outside)
+            link.mtime = 0
+            tf.addfile(link)
+
+            payload = b"safe"
+            member = tarfile.TarInfo("link/payload.txt")
+            member.size = len(payload)
+            member.mtime = 0
+            tf.addfile(member, io.BytesIO(payload))
+
+        data = buf.getvalue()
+        digest = "sha256:" + hashlib.sha256(data).hexdigest()
+        (layers_dir / f"{digest.removeprefix('sha256:')}.tar").write_bytes(data)
+
+        extract_layer(digest, layers_dir, rootfs)
+
+        assert not (host_outside / "payload.txt").exists()
+        assert (rootfs / "link" / "payload.txt").exists()

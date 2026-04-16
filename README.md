@@ -74,7 +74,7 @@ docksmith/
 │       ├── colorize.sh         # Bundled ANSI color helper
 │       └── colorize.py         # Python version (unused at runtime)
 ├── tests/
-│   ├── unit/                   # Parser, layer, image, cache, store (56 tests)
+│   ├── unit/                   # Parser, layer, image, cache, store (63 tests)
 │   ├── integration/            # Cache invalidation matrix + isolation leak test
 │   └── reproducibility/        # Byte-identical build verification
 ├── pyproject.toml
@@ -263,7 +263,7 @@ docksmith rmi <name:tag>                  Remove image manifest + layer files
 PYTHONPATH=. pytest tests/unit/ -v
 ```
 
-Expected: **56 passed**
+Expected: **63 passed**
 
 ### Integration tests — require root
 
@@ -305,7 +305,7 @@ Builds the same context twice with `--no-cache`, diffs manifests and layer tarba
 | `-e KEY=VALUE` env override at runtime | ✅ |
 | `docksmith images` / `rmi` | ✅ |
 | No network during build or run | ✅ |
-| 56 unit tests green | ✅ |
+| 63 unit tests green | ✅ |
 
 ### Out of Scope (per spec) ❌
 

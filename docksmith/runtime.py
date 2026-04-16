@@ -211,11 +211,8 @@ def run(
                 os.makedirs(wd, exist_ok=True)
                 os.chdir(wd)
 
-            # Build environment: merge image env with any extra overrides
-            full_env = dict(os.environ)  # inherit minimal host env for PATH fallback
-            full_env.update(env)
-            # Clean PATH if not set
-            full_env.setdefault("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+            # Build environment from image/runtime values only; do not leak host env.
+            full_env = _build_exec_env(env)
 
             os.execvpe(cmd[0], cmd, full_env)
         except Exception as exc:
@@ -231,6 +228,15 @@ def run(
         if os.WIFSIGNALED(status):
             return 128 + os.WTERMSIG(status)
         return 1
+
+
+def _build_exec_env(overrides: dict[str, str]) -> dict[str, str]:
+    """Build the environment visible inside the container process."""
+    env = {
+        "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    }
+    env.update(overrides)
+    return env
 
 
 def run_image(

@@ -44,10 +44,15 @@ class BuildState:
     cmd: list[str] = field(default_factory=list)
     layer_records: list[dict] = field(default_factory=list)  # {digest, size, createdBy}
     base_digest: str = ""   # manifest digest of the FROM image
+    base_layer_count: int = 0  # number of inherited layers from FROM
 
 
 def _prev_layer_digest(state: BuildState) -> str:
     """Return the digest to use as 'previous layer' for cache key computation."""
+    # Spec §5.1: first layer-producing step must use base manifest digest,
+    # not the digest of the last inherited base layer tar.
+    if len(state.layer_records) <= state.base_layer_count:
+        return state.base_digest
     if state.layer_records:
         return state.layer_records[-1]["digest"]
     return state.base_digest
@@ -173,6 +178,7 @@ def _handle_from(instr: Instruction, state: BuildState, step_num: str) -> None:
         r if isinstance(r, dict) else {"digest": r, "size": 0, "createdBy": ""}
         for r in manifest.get("layers", [])
     ]
+    state.base_layer_count = len(state.layer_records)
     state.base_digest = manifest.get("digest", "")
 
 
