@@ -123,8 +123,43 @@ class TestDigestBytes:
 
 
 class TestExtractSafety:
-    def test_extract_does_not_follow_absolute_symlink(self, tmp_path):
-        """A tar symlink pointing outside target_dir must not cause host writes."""
+    def test_extract_preserves_absolute_symlinks(self, tmp_path):
+        """
+        Absolute symlinks (e.g. Alpine's /bin/sh -> /bin/busybox) must be
+        preserved on extraction so the rootfs is functional after pivot_root.
+        """
+        from docksmith.layer import extract_layer
+
+        layers_dir = tmp_path / "layers"
+        rootfs = tmp_path / "rootfs"
+        layers_dir.mkdir()
+        rootfs.mkdir()
+
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w", format=tarfile.PAX_FORMAT) as tf:
+            link = tarfile.TarInfo("bin/sh")
+            link.type = tarfile.SYMTYPE
+            link.linkname = "/bin/busybox"
+            link.mtime = 0
+            tf.addfile(link)
+
+        data = buf.getvalue()
+        digest = "sha256:" + hashlib.sha256(data).hexdigest()
+        (layers_dir / f"{digest.removeprefix('sha256:')}.tar").write_bytes(data)
+
+        extract_layer(digest, layers_dir, rootfs)
+
+        link_path = rootfs / "bin" / "sh"
+        assert os.path.islink(link_path)
+        assert os.readlink(link_path) == "/bin/busybox"
+
+    def test_extract_does_not_write_outside_target_via_symlink(self, tmp_path):
+        """
+        A malicious tar with `link -> /outside` followed by `link/payload.txt`
+        must NOT result in any write to the host filesystem.  The symlink
+        itself may be created (it is inert until pivot_root), but the
+        subsequent file write must be rejected by the safety filter.
+        """
         from docksmith.layer import extract_layer
 
         layers_dir = tmp_path / "layers"
@@ -153,5 +188,6 @@ class TestExtractSafety:
 
         extract_layer(digest, layers_dir, rootfs)
 
+        # The critical safety property: nothing was written to the host.
         assert not (host_outside / "payload.txt").exists()
-        assert (rootfs / "link" / "payload.txt").exists()
+        assert not host_outside.exists()

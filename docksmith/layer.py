@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import io
 import os
+import shutil
 import tarfile
 from pathlib import Path
 
@@ -243,44 +244,149 @@ def _safe_member(member: tarfile.TarInfo) -> bool:
     return True
 
 
+def _resolve_safe(target_dir: str, name: str) -> str | None:
+    """
+    Return the absolute destination path inside *target_dir* for a tar member
+    *name*, or None when extraction would be unsafe.
+
+    Safety rules (no `os.path.realpath` — Alpine's absolute symlinks point to
+    host paths a non-root user cannot stat, so realpath blows up):
+
+      * reject absolute names and any name containing ``..``
+      * reject members whose parent path traverses an existing symlink — that
+        is the only attack vector (a malicious tar pre-creating ``link ->
+        /outside`` and then writing ``link/foo``).  The leaf itself is opened
+        with ``O_NOFOLLOW`` by the caller.
+    """
+    norm = name.replace("\\", "/")
+    if os.path.isabs(norm) or ".." in norm.split("/"):
+        return None
+    parts = [p for p in norm.split("/") if p and p != "."]
+    if not parts:
+        return None
+    cur = target_dir
+    for component in parts[:-1]:
+        cur = os.path.join(cur, component)
+        if os.path.islink(cur):
+            return None
+    return os.path.join(target_dir, *parts)
+
+
 def extract_layer(digest: str, layers_dir: str | Path, target_dir: str | Path) -> None:
     """
-    Extract a stored layer tarball into target_dir.
-    digest may be 'sha256:<hex>' or bare hex.
+    Extract a stored layer tarball into *target_dir*.
 
-    Extracts members individually so that later layers properly overwrite earlier
-    ones and FileExistsError on special files (FIFOs, devices) is handled cleanly.
+    We do not delegate to tarfile's "data" filter because it calls
+    ``os.path.realpath``, which on a base-image rootfs (Alpine) follows
+    absolute symlinks like ``/var/run -> /run`` into host paths the running
+    user may not be allowed to read.  Instead, every member is validated
+    and written manually:
+
+      * symlinks/hard links are created verbatim (absolute targets are
+        required for Alpine to function after pivot_root);
+      * regular files are opened with ``O_NOFOLLOW`` so a previously created
+        symlink at the leaf cannot be used to escape ``target_dir``;
+      * any member whose parent path traverses a symlink is dropped — that
+        is the only way a malicious tar could redirect a write to the host.
     """
     hex_val = digest.removeprefix("sha256:")
     tar_path = Path(layers_dir) / f"{hex_val}.tar"
     if not tar_path.exists():
         raise FileNotFoundError(f"Layer not found: {tar_path}")
     target_dir = str(target_dir)
+
     with tarfile.open(str(tar_path), "r") as tf:
         for member in tf.getmembers():
             if not _safe_member(member):
                 continue
-            dest = os.path.join(target_dir, member.name)
-            # For non-directory entries: remove any existing path so we can
-            # overwrite cleanly (handles FIFO-already-exists and regular
-            # file overwrites from later layers).
-            if not member.isdir():
-                try:
-                    if os.path.isdir(dest) and not os.path.islink(dest):
-                        pass  # don't remove a real dir for a non-dir member
-                    elif os.path.exists(dest) or os.path.islink(dest):
-                        os.unlink(dest)
-                except OSError:
-                    pass
-            try:
-                # Use tarfile's safe "data" extraction filter to prevent link-based
-                # path escapes (e.g., absolute symlinks followed by regular files).
-                tf.extract(member, target_dir, filter="data")  # type: ignore[arg-type]
-            except (FileExistsError, IsADirectoryError):
-                pass  # directory already exists — fine
-            except tarfile.TarError:
-                # Skip unsafe members rejected by the extraction filter.
-                pass
+            dest = _resolve_safe(target_dir, member.name)
+            if dest is None:
+                continue
+
+            if member.isdir():
+                _extract_dir(dest, member)
+            elif member.issym():
+                _extract_symlink(dest, member)
+            elif member.islnk():
+                _extract_hardlink(dest, member, target_dir)
+            elif member.isreg():
+                _extract_regular_file(dest, member, tf)
+            # FIFOs, devices, sockets — not relevant to a build/run rootfs
+
+
+def _ensure_parent(dest: str) -> bool:
+    parent = os.path.dirname(dest)
+    if not parent:
+        return True
+    try:
+        os.makedirs(parent, exist_ok=True)
+    except OSError:
+        return False
+    return True
+
+
+def _clear_existing(dest: str) -> None:
+    """Remove any existing entry at *dest* (file, symlink, empty dir)."""
+    if not os.path.lexists(dest):
+        return
+    try:
+        if os.path.islink(dest) or not os.path.isdir(dest):
+            os.unlink(dest)
+        else:
+            shutil.rmtree(dest)
+    except OSError:
+        pass
+
+
+def _extract_dir(dest: str, member: tarfile.TarInfo) -> None:
+    try:
+        os.makedirs(dest, exist_ok=True)
+    except OSError:
+        return
+    try:
+        os.chmod(dest, member.mode & 0o7777)
+    except OSError:
+        pass
+
+
+def _extract_symlink(dest: str, member: tarfile.TarInfo) -> None:
+    if not _ensure_parent(dest):
+        return
+    _clear_existing(dest)
+    try:
+        os.symlink(member.linkname, dest)
+    except OSError:
+        pass
+
+
+def _extract_hardlink(dest: str, member: tarfile.TarInfo, target_dir: str) -> None:
+    if not _ensure_parent(dest):
+        return
+    _clear_existing(dest)
+    src = os.path.join(target_dir, member.linkname.lstrip("/"))
+    try:
+        os.link(src, dest)
+    except OSError:
+        pass
+
+
+def _extract_regular_file(dest: str, member: tarfile.TarInfo, tf: tarfile.TarFile) -> None:
+    if not _ensure_parent(dest):
+        return
+    _clear_existing(dest)
+    mode = (member.mode & 0o7777) or 0o644
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW
+    try:
+        fd = os.open(dest, flags, mode)
+    except OSError:
+        return
+    try:
+        with os.fdopen(fd, "wb") as out:
+            src = tf.extractfile(member)
+            if src is not None:
+                shutil.copyfileobj(src, out)
+    except OSError:
+        pass
 
 
 def digest_file(path: str | Path) -> str:
