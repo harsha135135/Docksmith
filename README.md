@@ -221,6 +221,7 @@ docksmith images
 ```bash
 # 0 — Optional: start clean for a repeatable demo run
 sudo docksmith rmi myapp:latest 2>/dev/null || true
+sudo bash scripts/import-base-image.sh #execute if removed image
 
 # 1 — Cold build: clear cache index first so every layer step shows [CACHE MISS]
 sudo docksmith build --cold -t myapp:latest ./sample-app
