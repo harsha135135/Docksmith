@@ -2,9 +2,9 @@
 
 # Docksmith
 
-**A simplified Docker‑like build‑and‑runtime system, built from scratch.**
+**A simplified Docker‑like build‑and‑runtime system.**
 
-*PES University · Semester 6 · Systems Programming Project*
+*PES University · Semester 6 · Cloud Computing Project*
 
 </div>
 
