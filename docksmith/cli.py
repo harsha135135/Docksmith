@@ -12,6 +12,37 @@ from docksmith import DocksmithError
 from docksmith import store
 
 
+def _normalize_cmd_tokens(tokens: list[str]) -> list[str]:
+    """Normalize CLI command override tokens.
+
+    Accepts both:
+      docksmith run image /bin/sh -c "echo hi"
+      docksmith run image -- /bin/sh -c "echo hi"
+    """
+    if tokens and tokens[0] == "--":
+        return tokens[1:]
+    return tokens
+
+
+def _extract_leading_env_flags(tokens: list[str]) -> tuple[dict[str, str], list[str]]:
+    """Extract leading -e/--env KEY=VALUE flags from run command tail."""
+    env: dict[str, str] = {}
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok not in ("-e", "--env"):
+            break
+        if i + 1 >= len(tokens):
+            raise DocksmithError("docksmith run: -e/--env requires KEY=VALUE")
+        kv = tokens[i + 1]
+        if "=" not in kv:
+            raise DocksmithError(f"docksmith run: -e {kv!r}: must be KEY=VALUE")
+        k, v = kv.split("=", 1)
+        env[k] = v
+        i += 2
+    return env, tokens[i:]
+
+
 def _cmd_build(args: argparse.Namespace) -> int:
     from docksmith.builder import build_image
 
@@ -61,9 +92,17 @@ def _cmd_run(args: argparse.Namespace) -> int:
         k, v = kv.split("=", 1)
         extra_env[k] = v
 
+    cmd_tokens = _normalize_cmd_tokens(args.cmd or [])
+    try:
+        tail_env, cmd_tokens = _extract_leading_env_flags(cmd_tokens)
+    except DocksmithError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    extra_env.update(tail_env)
+
     rc = run_image(
         image_ref=args.image,
-        cmd_override=args.cmd or [],
+        cmd_override=cmd_tokens,
         extra_env=extra_env,
     )
     word = "Container exited with code"
@@ -153,7 +192,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_run.add_argument(
         "cmd",
-        nargs="*",
+        nargs=argparse.REMAINDER,
         metavar="CMD",
         help="Command to run (overrides image CMD)",
     )
