@@ -60,7 +60,7 @@ docksmith/
 │   ├── app.sh                  # banner + colored output, ENVs overridable via -e
 │   └── vendor/colorize.sh      # bundled ANSI helper (no network needed)
 ├── tests/
-│   ├── unit/                   # 63 tests — parser, layer, cache, image, store, builder, runtime
+│   ├── unit/                   # 73 tests — parser, layer, cache, image, store, builder, runtime
 │   ├── integration/            # cache invalidation matrix + isolation leak test
 │   └── reproducibility/        # byte-identical rebuild verification
 ├── pyproject.toml
@@ -219,15 +219,20 @@ docksmith images
 ## 8‑Step Demo (matches §9 of the spec)
 
 ```bash
+# 0 — Optional: start clean for a repeatable demo run
+sudo docksmith rmi myapp:latest 2>/dev/null || true
+
 # 1 — Cold build: clear cache index first so every layer step shows [CACHE MISS]
 sudo docksmith build --cold -t myapp:latest ./sample-app
 
 # 2 — Warm build: every layer step shows [CACHE HIT], near-instant
 sudo docksmith build -t myapp:latest ./sample-app
 
-# 3 — Edit source → partial invalidation cascade
+# 3 — Edit source → partial invalidation cascade, then restore file
+cp sample-app/app.sh /tmp/app.sh.bak
 echo '# bump' >> sample-app/app.sh
 sudo docksmith build -t myapp:latest ./sample-app
+mv /tmp/app.sh.bak sample-app/app.sh
 
 # 4 — List images
 docksmith images
@@ -239,6 +244,7 @@ sudo docksmith run myapp:latest
 sudo docksmith run -e GREETING=Howdy -e TARGET=World -e EMPHASIS=magenta myapp:latest
 
 # 7 — Isolation check (sentinel file written inside must NOT leak)
+sudo rm -f /tmp/leak.txt
 sudo docksmith run myapp:latest /bin/sh -c 'echo secret > /tmp/leak.txt'
 ls /tmp/leak.txt 2>/dev/null && echo "FAIL: leaked" || echo "PASS: isolated"
 
@@ -301,7 +307,7 @@ docksmith rmi    <name:tag>               Remove image manifest + its layer file
 ```bash
 # Unit tests — no root needed
 PYTHONPATH=. pytest tests/unit/ -v
-# Expected: 63 passed
+# Expected: 73 passed
 
 # Integration tests — require root (RUN uses Linux namespaces)
 sudo PYTHONPATH=. pytest tests/integration/ -v

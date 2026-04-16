@@ -44,6 +44,3 @@ _row "Uname"      "$(stylize "$(uname -a 2>/dev/null || echo unknown)" "dim")"
 printf "  %s\n" "${DASH}"
 colorize "  Container exited cleanly. Built with Docksmith." "dim"
 stylize  "${BAR}"                                            "bold,${EMPHASIS}"
-# bump
-# bump
-# bump
