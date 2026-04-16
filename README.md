@@ -333,6 +333,7 @@ instructions.
 |---------|-----|
 | `sudo docksmith: command not found` | `sudo install -m 0755 scripts/docksmith-sudo-wrapper /usr/local/bin/docksmith` |
 | `image not found: alpine:3.18` | `sudo bash scripts/import-base-image.sh` |
+| `FROM alpine:3.18: base image is incomplete; missing layer file(s)` | Re-import base image: `sudo bash scripts/import-base-image.sh` |
 | `unshare failed: Operation not permitted` | Use `sudo` — needs `CAP_SYS_ADMIN` |
 | `docksmith images` shows nothing after a sudo build | Re‑run the wrapper install — it pins `DOCKSMITH_ROOT` to your home |
 | Tests fail with `import pytest` error | `pip install --user pytest --break-system-packages` |

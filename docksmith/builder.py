@@ -169,6 +169,16 @@ def _handle_from(instr: Instruction, state: BuildState, step_num: str) -> None:
             "Hint: run `bash scripts/import-base-image.sh` to bootstrap Alpine."
         ) from exc
 
+    base_layer_digests = image_mod.layer_digests(manifest)
+    missing_layers = [d for d in base_layer_digests if not store.layer_path(d).exists()]
+    if missing_layers:
+        raise DocksmithError(
+            f"FROM {ref}: base image is incomplete; missing {len(missing_layers)} layer file(s).\n"
+            f"First missing layer: {missing_layers[0]}\n"
+            "Hint: re-import base image with `bash scripts/import-base-image.sh`.\n"
+            "Note: missing layers can happen after `docksmith rmi` because layers are not reference-counted."
+        )
+
     cfg = manifest.get("config", {})
     # Env: handle both list ["K=V"] and legacy dict {"K": "V"} formats
     raw_env = cfg.get("Env", [])
