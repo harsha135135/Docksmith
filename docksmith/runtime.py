@@ -14,16 +14,12 @@ Isolation:
     CLONE_NEWUTS  = 0x04000000  — UTS (hostname) namespace
     CLONE_NEWIPC  = 0x08000000  — IPC namespace
 
-  Sequence inside the child:
-    1. unshare(CLONE_NEWNS | CLONE_NEWPID | CLONE_NEWUTS | CLONE_NEWIPC)
-    2. mount("", "/", NULL, MS_REC|MS_PRIVATE, NULL)   — no propagation out
-    3. mount(rootfs, rootfs, NULL, MS_BIND|MS_REC, NULL) — bind-mount
-    4. mkdir(rootfs + "/old_root")
-    5. pivot_root(rootfs, rootfs + "/old_root")
-    6. chdir("/")
-    7. umount2("/old_root", MNT_DETACH) + rmdir
-    8. mount("proc", "/proc", "proc", 0, NULL)
-    9. execvpe(cmd[0], cmd, env)
+    Sequence:
+        1. fork() to launcher child
+        2. launcher: unshare(CLONE_NEWNS | CLONE_NEWPID | CLONE_NEWUTS | CLONE_NEWIPC)
+        3. launcher: fork() again so the new child actually enters the new PID namespace
+        4. namespace-child: mount setup + pivot_root/chroot + mount /proc + execvpe(cmd)
+        5. launcher waits for namespace-child and exits with the same status
 
   Fallback: if pivot_root fails (EINVAL on some VMs/filesystems) and
   --no-pivot-root is set, fall back to chroot.
@@ -39,7 +35,6 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.util
-import errno
 import os
 import sys
 import tempfile
@@ -127,24 +122,14 @@ def _pivot_root(new_root: bytes, put_old: bytes) -> None:
     _check(ret, "pivot_root")
 
 
-def _setup_container(rootfs: str, workdir: str) -> None:
+def _setup_container(rootfs: str) -> None:
     """
-    Called inside the forked child process.
-    Sets up namespaces, pivot_root, and mounts.
+    Called inside the process that will exec the container command.
+    Sets up mount isolation, pivot_root/chroot, and /proc.
     """
     rootfs_b = rootfs.encode()
     put_old = os.path.join(rootfs, ".pivot_old")
     put_old_b = put_old.encode()
-
-    try:
-        _unshare(CLONE_NEWNS | CLONE_NEWPID | CLONE_NEWUTS | CLONE_NEWIPC)
-    except OSError as exc:
-        # May need CAP_SYS_ADMIN; surface a clear error
-        raise DocksmithError(
-            f"unshare failed: {exc}\n"
-            "Make sure you are running as root or have CAP_SYS_ADMIN.\n"
-            "In a VM: `sudo python -m docksmith ...`"
-        ) from exc
 
     # Make the mount namespace private so changes don't propagate to host
     _mount(b"", b"/", None, MS_REC | MS_PRIVATE, None)
@@ -199,22 +184,40 @@ def run(
 
     pid = os.fork()
     if pid == 0:
-        # ── Child ──────────────────────────────────────────────────────────
+        # ── Launcher child (creates and supervises PID-namespace child) ───
         try:
-            _setup_container(rootfs, workdir)
-
-            # Set working directory inside the container
-            wd = workdir if workdir else "/"
             try:
-                os.chdir(wd)
-            except FileNotFoundError:
-                os.makedirs(wd, exist_ok=True)
-                os.chdir(wd)
+                _unshare(CLONE_NEWNS | CLONE_NEWPID | CLONE_NEWUTS | CLONE_NEWIPC)
+            except OSError as exc:
+                raise DocksmithError(
+                    f"unshare failed: {exc}\n"
+                    "Make sure you are running as root or have CAP_SYS_ADMIN.\n"
+                    "In a VM: `sudo python -m docksmith ...`"
+                ) from exc
 
-            # Build environment from image/runtime values only; do not leak host env.
-            full_env = _build_exec_env(env)
+            pid_ns_child = os.fork()
+            if pid_ns_child == 0:
+                # ── PID-namespace child (PID 1 in new namespace) ──────────
+                try:
+                    _setup_container(rootfs)
 
-            os.execvpe(cmd[0], cmd, full_env)
+                    # Set working directory inside the container
+                    wd = workdir if workdir else "/"
+                    try:
+                        os.chdir(wd)
+                    except FileNotFoundError:
+                        os.makedirs(wd, exist_ok=True)
+                        os.chdir(wd)
+
+                    # Build environment from image/runtime values only; do not leak host env.
+                    full_env = _build_exec_env(env)
+                    os.execvpe(cmd[0], cmd, full_env)
+                except Exception as exc:
+                    print(f"docksmith-container: {exc}", file=sys.stderr)
+                    os._exit(127)
+
+            _, child_status = os.waitpid(pid_ns_child, 0)
+            os._exit(_wait_status_to_exit_code(child_status))
         except Exception as exc:
             print(f"docksmith-container: {exc}", file=sys.stderr)
             os._exit(127)
@@ -228,6 +231,15 @@ def run(
         if os.WIFSIGNALED(status):
             return 128 + os.WTERMSIG(status)
         return 1
+
+
+def _wait_status_to_exit_code(status: int) -> int:
+    """Convert os.waitpid status to shell-style exit code."""
+    if os.WIFEXITED(status):
+        return os.WEXITSTATUS(status)
+    if os.WIFSIGNALED(status):
+        return 128 + os.WTERMSIG(status)
+    return 1
 
 
 def _build_exec_env(overrides: dict[str, str]) -> dict[str, str]:
